@@ -70,7 +70,15 @@ class ExecutionAgent:
                 output = ExecutionAgent._strip_fingerprints(output)
             else:
                 # Exécution Bash via SSH (Module 5)
-                target_ip = get_current_key(state)
+                # FIX OFF-BY-ONE : L'Identity Agent a déjà incrémenté l'index (+1). 
+                # L'IP en cours d'exécution est donc obligatoirement à l'index - 1.
+                discovered = state.get("discovered_hosts", [])
+                host_idx = state.get("current_host_index", 1) - 1
+                
+                if 0 <= host_idx < len(discovered):
+                    target_ip = discovered[host_idx]
+                else:
+                    target_ip = "unknown_target"
                 
                 # Récupération dynamique depuis le fichier JSON
                 credentials = CredentialStore.get_credentials(target_ip)
@@ -109,7 +117,12 @@ class ExecutionAgent:
             # ==========================================
             # Archive raw output
             # ==========================================
-            key = get_current_key(state)
+            # FIX: S'assurer que la clé d'archivage correspond à l'IP SSH traitée
+            if command.startswith("nmap") or command.startswith("arp-scan"):
+                key = get_current_key(state)
+            else:
+                key = target_ip
+                
             if "host_results" not in state:
                 state["host_results"] = {}
             state["host_results"][key] = output

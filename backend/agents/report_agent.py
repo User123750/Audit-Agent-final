@@ -62,6 +62,8 @@ class ReportAgent:
         network = state["network_info"]
         discovered = state.get("discovered_hosts", [])
         structured_hosts = state.get("structured_hosts", {})
+        asset_tags = state.get("asset_tags", {})
+        vulnerabilities = state.get("vulnerabilities", {})  # Récupération des analyses de sécurité (Phase 6)
 
         sections = []
         sections.append("========== ODDNET AUDIT FINAL REPORT ==========\n")
@@ -81,6 +83,8 @@ class ReportAgent:
         for ip in discovered:
 
             host = structured_hosts.get(ip)
+            tags = asset_tags.get(ip, [])
+            vulns = vulnerabilities.get(ip, [])
 
             if host is None:
                 sections.append(f">>> HOST: {ip} <<<")
@@ -91,6 +95,9 @@ class ReportAgent:
             sections.append(f"Status      : {host.status.value}")
             sections.append(f"MAC Address : {host.mac_address or 'Unknown'}")
             sections.append(f"Vendor      : {host.vendor or 'Unknown'}")
+            
+            # Affichage des Tags découverts (Phase 5)
+            sections.append(f"Discovered Tags : {', '.join(tags) if tags else 'None'}")
 
             if host.ports:
                 sections.append(f"Open Ports  : {len(host.ports)}")
@@ -103,6 +110,12 @@ class ReportAgent:
                     )
             else:
                 sections.append("Open Ports  : None detected")
+
+            # Affichage des Recommandations & Risques (Phase 6)
+            if vulns:
+                sections.append("\n  Security Recommendations & Risk Analysis:")
+                for rec in vulns:
+                    sections.append(f"    * {rec}")
 
             sections.append("\n" + "="*47 + "\n")
 

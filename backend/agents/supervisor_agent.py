@@ -38,13 +38,29 @@ class SupervisorAgent:
             return "access_strategy"
 
         # ==========================================
-        # 2c. Identity Collection phase (Phase 3 - NEW)
+        # 2c. Identity Collection phase (Phase 3)
         # ==========================================
         if state.get("stage") == "identity_collection":
-            # S'il n'y a pas encore de commande Bash générée, on va vers l'agent d'identité
             if state.get("current_command") is None:
                 return "identity_collection"
-            # Sinon, on laisse le flux descendre vers guardrail -> validation -> execution
+
+        # ==========================================
+        # 2d. Classification phase (Phase 4)
+        # ==========================================
+        if state.get("stage") == "classification":
+            return "classification"
+
+        # ==========================================
+        # 2e. Collector phase (Phase 5)
+        # ==========================================
+        if state.get("stage") == "collector":
+            return "collector"
+
+        # ==========================================
+        # 2f. Correlation phase (Phase 6) -> ZIDNA HADA
+        # ==========================================
+        if state.get("stage") == "correlation":
+            return "correlation"
 
         # ==========================================
         # 3. Command generation
@@ -89,11 +105,19 @@ class SupervisorAgent:
             current_key = "discovery"
 
         elif state.get("stage") == "identity_collection":
-            # Clé unique pour le rapport d'exécution Bash
             discovered = state.get("discovered_hosts", [])
             host_idx = state.get("current_host_index", 0)
             host = discovered[host_idx] if host_idx < len(discovered) else "unknown"
             current_key = f"{host}_identity"
+
+        elif state.get("stage") == "classification":
+            current_key = "classification_done"
+
+        elif state.get("stage") == "collector":
+            current_key = "collector_done"
+
+        elif state.get("stage") == "correlation":
+            current_key = "correlation_done"
 
         else:
             # stage == "enumeration"
@@ -116,7 +140,7 @@ class SupervisorAgent:
                 current_key = "overflow"
 
         reports = state.get("partial_reports", {})
-        if current_key not in reports and current_key != "overflow":
+        if current_key not in reports and current_key != "overflow" and state.get("stage") not in ["classification", "collector", "correlation"]:
             return "report"
 
         # ==========================================

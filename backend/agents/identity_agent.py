@@ -13,8 +13,9 @@ class IdentityCollectionAgent:
         
         # 1. Vérification si tous les hôtes ont été parcourus
         if host_idx >= len(discovered):
-            print("[Identity Agent] Tous les hôtes ont été parcourus. Fin de la phase d'identité.")
-            state["stage"] = "done"
+            print("[Identity Agent] Tous les hôtes ont été parcourus. Fin de la phase d'identité. Passage à la classification.")
+            # NOUVEAU ROUTAGE: On passe à la Phase 4 (Classification) au lieu de 'done'
+            state["stage"] = "classification"
             state["current_command"] = None
             return state
             
@@ -23,11 +24,21 @@ class IdentityCollectionAgent:
         
         print(f"[Identity Agent] Analyse de l'hôte {target_ip} (Index: {host_idx + 1}/{len(discovered)})")
         
-        if strategy and strategy.status == "READY" and strategy.method == "SSH":
+        # On vérifie juste si la stratégie existe. 
+        # Le Pydantic AccessStrategy n'a pas d'attributs 'status' ou 'method'.
+        if strategy:
             print(f"[Identity Agent] Accès SSH prêt pour {target_ip} (Credential ID: {strategy.credential_id}). Génération de la commande...")
             
-            # Commande d'identification système adaptée à l'environnement d'exécution
-            bash_command = "ver"
+            # Commande dynamique basée sur les données factuelles de Nmap (-sV)
+            bash_command = "cat /etc/os-release"  # Défaut Linux
+            
+            structured_hosts = state.get("structured_hosts", {})
+            host_info = structured_hosts.get(target_ip)
+            
+            if host_info and host_info.os_info:
+                os_lower = host_info.os_info.lower()
+                if "windows" in os_lower:
+                    bash_command = "systeminfo"
             
             state["current_command"] = CommandInfo(
                 command=bash_command,
@@ -49,8 +60,10 @@ class IdentityCollectionAgent:
             state["current_command"] = None
             state["current_host_index"] = host_idx + 1
             
+            # Vérification après incrémentation
             if state["current_host_index"] >= len(discovered):
-                print("[Identity Agent] Fin de la liste des hôtes. Passage au stage 'done'.")
-                state["stage"] = "done"
+                print("[Identity Agent] Fin de la liste des hôtes. Passage au stage 'classification'.")
+                # NOUVEAU ROUTAGE: On passe à la Phase 4 (Classification) au lieu de 'done'
+                state["stage"] = "classification"
             
         return state

@@ -31,18 +31,24 @@ def merge_dict(existing: Optional[dict], new: Optional[dict]) -> dict:
 def get_current_key(state: dict) -> str:
     """
     Détermine la clé courante pour stocker les résultats et rapports partiels.
-
-    Retourne :
-      - "discovery" pendant la phase de discovery
-      - f"{host}_{flag}" pendant la phase d'énumération, ex: "192.168.3.7_-sS"
-        (un host est scanné par PLUSIEURS commandes distinctes, donc l'IP
-        seule ne suffit plus comme clé unique — sinon les 3 scans du même
-        host s'écrasent mutuellement dans partial_reports).
     """
     stage = state.get("stage", "discovery")
 
     if stage == "discovery":
         return "discovery"
+        
+    # Gestion intelligente de l'index pour la Phase d'identité
+    if stage == "identity_collection":
+        discovered = state.get("discovered_hosts", [])
+        host_idx = state.get("current_host_index", 0)
+        
+        # L'IdentityAgent incrémente l'index AVANT l'exécution et le rapport.
+        if state.get("current_command") is not None:
+            host_idx -= 1
+            
+        if not discovered or host_idx < 0 or host_idx >= len(discovered):
+            return "unknown_target"
+        return discovered[host_idx]
 
     # En phase d'énumération, on retourne host + commande courante
     discovered = state.get("discovered_hosts", [])
@@ -100,10 +106,10 @@ class AuditState(TypedDict):
     # Final report
     report: Optional[ReportInfo]
 
-    # --- Pipeline discovery -> enumeration -> access_strategy -> done ---
+    # --- Pipeline discovery -> enumeration -> access_strategy -> identity_collection -> classification -> done ---
 
     # Contrôle du flux de l'audit
-    stage: str  # "discovery" | "enumeration" | "access_strategy" | "done"
+    stage: str  # "discovery" | "enumeration" | "access_strategy" | "identity_collection" | "classification" | "done"
 
     # Liste des cibles identifiées lors de la phase discovery
     discovered_hosts: list[str]
@@ -112,24 +118,26 @@ class AuditState(TypedDict):
     current_host_index: int
 
     # Pointeur pour la boucle de commandes au sein d'un host
-    # (0, 1, 2 -> index dans commands_per_host)
     current_command_index: int
 
     # Liste des commandes à exécuter pour CHAQUE host découvert
-    # (ex: ["-sS", "-sV", "-sn"])
     commands_per_host: list[str]
 
-    # Accumulateur des résultats bruts par clé (host_flag) (fusion des données)
+    # Accumulateur des résultats bruts par clé (host_flag)
     host_results: Annotated[dict[str, str], merge_dict]
 
     # Accumulateur des rapports structurés par étape/host_flag
     partial_reports: Annotated[dict[str, ReportInfo], merge_dict]
 
-    # Accumulateur des résultats STRUCTURÉS par host (IP), fusionnant
-    # les données de -sS/-sV/-sn pour un même host en un seul HostResult
-    # dédupliqué (MAC, vendor, OS info, ports combinés).
+    # Accumulateur des résultats STRUCTURÉS par host (IP)
     structured_hosts: Annotated[dict[str, HostResult], merge_dict]
 
-    # Stratégies d'accès SSH générées pour les hosts éligibles (IP
-    # présente dans le credential store ET port SSH détecté par Nmap).
+    # Stratégies d'accès SSH générées pour les hosts éligibles
     access_strategies: Annotated[dict[str, AccessStrategy], merge_dict]
+    
+    # NOUVEAU (Phase 4): Dictionnaire pour stocker la classe finale de chaque IP (ex: "Linux Endpoint")
+    classifications: Annotated[dict[str, str], merge_dict]
+    # NOUVEAU (Phase 5): Dictionnaire pour stocker les tags dynamiques par IP
+    asset_tags: Annotated[dict[str, list[str]], merge_dict]
+    # Auto-approbation par lots
+    batch_approved: Optional[bool]

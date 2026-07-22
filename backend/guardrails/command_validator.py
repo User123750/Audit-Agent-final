@@ -9,16 +9,21 @@ import shlex
 
 class CommandValidator:
 
-    ALLOWED_TOOLS = [
-        "nmap",
+    # CORRECTION BUG 4 : Séparation stricte des outils par étape
+    NMAP_TOOLS = ["nmap"]
+    
+    IDENTITY_TOOLS = [
         "echo",
         "whoami",
+        "id",
         "uname",
         "hostname",
+        "hostnamectl",
+        "systemd-detect-virt",
         "cat",
         "ver",
+        "systeminfo",
         "ls",
-        "whoami",
         "dir"
     ]
 
@@ -37,7 +42,7 @@ class CommandValidator:
     ]
 
     @classmethod
-    def validate(cls, command: str) -> tuple[bool, str]:
+    def validate(cls, command: str, stage: str = None) -> tuple[bool, str]:
 
         if not command.strip():
             return False, "Empty command."
@@ -49,17 +54,28 @@ class CommandValidator:
 
         tool = tokens[0].lower()
 
-        if tool not in cls.ALLOWED_TOOLS:
-            return False, f"{tool} is not allowed."
+        # Validation dépendante de l'étape de l'audit
+        if stage in ["discovery", "enumeration"]:
+            allowed = cls.NMAP_TOOLS
+        elif stage == "identity_collection":
+            allowed = cls.IDENTITY_TOOLS
+        else:
+            # Rétrocompatibilité si le stage n'est pas fourni par workflow.py
+            allowed = cls.NMAP_TOOLS + cls.IDENTITY_TOOLS
 
-        for token in tokens:
-            if token in cls.FORBIDDEN_FLAGS:
-                return False, f"Forbidden argument detected: {token}"
+        if tool not in allowed:
+            return False, f"{tool} is not allowed in stage: {stage or 'unknown'}."
 
+        # On vérifie les flags Nmap uniquement si c'est une commande Nmap
+        if tool == "nmap":
+            for token in tokens:
+                if token in cls.FORBIDDEN_FLAGS:
+                    return False, f"Forbidden argument detected: {token}"
+
+        # Protection universelle contre l'injection de commandes
         forbidden_chars = [";", "&", "|", ">", "<"]
-
         for char in forbidden_chars:
             if char in command:
-                return False, "Command injection detected."
+                return False, "Command injection detected (multi-commands not allowed)."
 
         return True, "Command validated."

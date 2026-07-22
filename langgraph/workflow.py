@@ -6,7 +6,6 @@ The workflow executes nodes according to Supervisor decisions.
 """
 
 from backend.agents.supervisor_agent import SupervisorAgent
-
 from backend.agents.network_agent import NetworkAgent
 from backend.agents.command_agent import CommandAgent
 from backend.agents.execution_agent import ExecutionAgent
@@ -14,6 +13,9 @@ from backend.agents.report_agent import ReportAgent
 from backend.agents.access_strategy_agent import AccessStrategyAgent
 from backend.agents.identity_agent import IdentityCollectionAgent
 from backend.guardrails.command_validator import CommandValidator
+from backend.agents.classification_agent import ClassificationAgent
+from backend.agents.collector_agent import CollectorAgent
+from backend.agents.correlation_agent import CorrelationAgent
 from backend.models.validation import ValidationInfo, ValidationAction
 from backend.models.state import get_current_key
 
@@ -61,8 +63,9 @@ class Workflow:
             elif next_step == "guardrail":
                 command = state["current_command"]
 
+                # Validation avec prise en compte du stage actuel
                 valid, message = CommandValidator.validate(
-                    command.command
+                    command.command, state.get("stage")
                 )
 
                 print(message)
@@ -131,7 +134,7 @@ class Workflow:
                 state = ExecutionAgent.run(state)
 
             # ==========================================
-            # Access Strategy Agent (NEW)
+            # Access Strategy Agent
             # ==========================================
             elif next_step == "access_strategy":
                 state = AccessStrategyAgent.run(state)
@@ -151,47 +154,74 @@ class Workflow:
                 state["validation"] = None
 
             # ==========================================
+            # Classification Agent (Phase 4)
+            # ==========================================
+            elif next_step == "classification":
+                print("Refining host classifications (Phase 4)...\n")
+                state = ClassificationAgent.run(state)
+                
+                # Transition directe vers le collector (Phase 5)
+                state["stage"] = "collector"
+
+            # ==========================================
+            # Collector Agent (Phase 5 - Tag Discovery)
+            # ==========================================
+            elif next_step == "collector":
+                print("Running Tag Discovery and Collector Agent (Phase 5)...\n")
+                state = CollectorAgent.run(state)
+                
+                # Transition vers la Phase 6 (Correlation)
+                state["stage"] = "correlation"
+
+            # ==========================================
+            # Correlation Agent (Phase 6 - Vulnerability Analysis)
+            # ==========================================
+            elif next_step == "correlation":
+                print("Running Vulnerability Correlation Agent (Phase 6)...\n")
+                state = CorrelationAgent.run(state)
+                
+                # Transition finale vers la fin
+                state["stage"] = "done"
+
+            # ==========================================
             # Report Agent
             # ==========================================
             elif next_step == "report":
                 print("Generating report...\n")
 
-                if state["stage"] == "done":
-                    state = ReportAgent.run(state)
-                else:
-                    state = ReportAgent.run(state)
+                state = ReportAgent.run(state)
 
-                    if state["stage"] == "discovery":
-                        if state["discovered_hosts"]:
-                            state["stage"] = "enumeration"
-                            state["current_host_index"] = 0
-                            state["current_command_index"] = 0
-                            state.setdefault(
-                                "commands_per_host",
-                                DEFAULT_ENUMERATION_COMMANDS,
-                            )
-                        else:
-                            print("Aucun host detecte lors du discovery scan.\n")
-                            state["stage"] = "done"
-
-                    elif state["stage"] == "enumeration":
-                        commands_per_host = state.get(
-                            "commands_per_host", DEFAULT_ENUMERATION_COMMANDS
+                if state["stage"] == "discovery":
+                    if state["discovered_hosts"]:
+                        state["stage"] = "enumeration"
+                        state["current_host_index"] = 0
+                        state["current_command_index"] = 0
+                        state.setdefault(
+                            "commands_per_host",
+                            DEFAULT_ENUMERATION_COMMANDS,
                         )
+                    else:
+                        print("Aucun host detecte lors du discovery scan.\n")
+                        state["stage"] = "done"
 
-                        state["current_command_index"] += 1
+                elif state["stage"] == "enumeration":
+                    commands_per_host = state.get(
+                        "commands_per_host", DEFAULT_ENUMERATION_COMMANDS
+                    )
 
-                        if state["current_command_index"] >= len(commands_per_host):
-                            state["current_command_index"] = 0
-                            state["current_host_index"] += 1
+                    state["current_command_index"] += 1
 
-                            if state["current_host_index"] >= len(state["discovered_hosts"]):
-                                state["stage"] = "access_strategy"
+                    if state["current_command_index"] >= len(commands_per_host):
+                        state["current_command_index"] = 0
+                        state["current_host_index"] += 1
 
-                    state["current_command"] = None
-                    state["guardrail_status"] = None
-                    state["validation"] = None
-                    state["execution_output"] = None
+                        if state["current_host_index"] >= len(state["discovered_hosts"]):
+                            state["stage"] = "access_strategy"
+
+                state["current_command"] = None
+                state["guardrail_status"] = None
+                state["validation"] = None
+                state["execution_output"] = None
 
             # ==========================================
             # End

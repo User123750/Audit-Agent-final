@@ -32,6 +32,14 @@ class CommandAgent:
         stage = state.get("stage", "discovery")
 
         # ==========================================
+        # 0. Gestion de la phase Classification
+        # ==========================================
+        if stage == "classification":
+            # Le CommandAgent n'a pas besoin de générer de commandes réseau en phase de classification
+            state["current_command"] = None
+            return state
+
+        # ==========================================
         # 1. Définition de la cible et de l'objectif selon le stage
         # ==========================================
 
@@ -49,7 +57,7 @@ class CommandAgent:
                 "Do NOT perform a full 1-65535 port scan on the entire subnet."
             )
 
-        else:  # stage == "enumeration"
+        elif stage == "enumeration":
 
             discovered_hosts = state.get("discovered_hosts", [])
             current_host_index = state.get("current_host_index", 0)
@@ -58,9 +66,6 @@ class CommandAgent:
                 "commands_per_host", DEFAULT_ENUMERATION_COMMANDS
             )
 
-            # Garde-fou défensif : si le Supervisor a un bug de routing et
-            # nous appelle hors limites, on échoue explicitement plutôt
-            # que de crasher avec un IndexError cryptique plus bas.
             if not discovered_hosts or current_host_index >= len(discovered_hosts):
                 raise RuntimeError(
                     "CommandAgent appelé avec current_host_index hors limites "
@@ -71,7 +76,6 @@ class CommandAgent:
 
             current_target = discovered_hosts[current_host_index]
 
-            # Quel flag utiliser pour CE tour précis (-sS, -sV, ou -sn...)
             if current_command_index >= len(commands_per_host):
                 raise RuntimeError(
                     "CommandAgent appelé avec current_command_index hors "
@@ -119,6 +123,29 @@ class CommandAgent:
                 "Do NOT scan the entire subnet — target ONLY this single IP."
             )
 
+        elif stage == "identity_collection":
+            discovered_hosts = state.get("discovered_hosts", [])
+            
+            # L'IdentityAgent a déjà incrémenté l'index, la cible actuelle est l'index - 1
+            host_idx = state.get("current_host_index", 1) - 1 
+            if host_idx >= 0 and host_idx < len(discovered_hosts):
+                current_target = discovered_hosts[host_idx]
+            else:
+                current_target = "Unknown SSH Target"
+
+            target_info = f"SSH Session on Target IP: {current_target}"
+            
+            stage_instructions = (
+                "STAGE: IDENTITY COLLECTION (Phase 3)\n"
+                f"Your goal is to propose ONE safe command via SSH to identify the Operating System of {current_target}.\n"
+                "You must propose a generic Linux command coherent with the architecture document (e.g., 'cat /etc/os-release', 'uname -r', 'hostnamectl').\n"
+                "If the engineer's feedback implies it is a Windows machine, use 'systeminfo'.\n"
+                "Do NOT use Nmap here. You are already executing a local command inside the machine via SSH.\n"
+                "Do NOT use forbidden characters for injection like ';', '&', '|', '>', '<'. Keep it to a single safe command."
+            )
+        else:
+            stage_instructions = "STAGE: GENERAL\nPerform the requested operation safely."
+
         # ==========================================
         # 2. Intégration du feedback de l'ingénieur (Modify)
         # ==========================================
@@ -163,10 +190,8 @@ Previously Generated Commands
 
 Rules
 
-- Generate ONLY ONE Nmap command.
-- The command MUST start with the word "nmap".
+- Generate ONLY ONE command.
 - Never repeat a previous command.
-- Use only safe Nmap options.
 - The command must strictly target: {target_info}.
 - Return ONLY a valid JSON object.
 
@@ -196,9 +221,6 @@ Do not write anything outside the JSON.
         # ==========================================
         # 4. Appel au LLM avec JSON schema enforcement
         # ==========================================
-        # On utilise le paramètre "format" d'Ollama avec le schema
-        # Pydantic de CommandInfo pour forcer une sortie JSON valide,
-        # au lieu de compter uniquement sur les instructions du prompt.
 
         response = ollama.chat(
             model=cls.MODEL,
@@ -213,7 +235,6 @@ Do not write anything outside the JSON.
 
         content = response["message"]["content"].strip()
 
-        # Sécurité : nettoyage des balises Markdown si Llama3 en génère quand même
         if content.startswith("```json"):
             content = content[7:]
         if content.startswith("```"):
@@ -225,27 +246,19 @@ Do not write anything outside the JSON.
         data = json.loads(content)
 
         # ==========================================
-        # 5. Garde-fou : s'assurer que la commande commence par "nmap"
+        # 5. Garde-fou : Post-traitement conditionnel
         # ==========================================
-        # Le LLM oublie parfois d'inclure "nmap" au début de la
-        # commande, ce qui fait échouer le Guardrail (qui interprète
-        # alors le premier flag comme "l'outil").
 
         raw_command = data["command"].strip()
 
-        if not raw_command.lower().startswith("nmap"):
-            raw_command = f"nmap {raw_command}"
+        # Le forçage du préfixe 'nmap' ne s'applique qu'aux phases réseau
+        if stage in ["discovery", "enumeration"]:
+            if not raw_command.lower().startswith("nmap"):
+                raw_command = f"nmap {raw_command}"
 
-        # ==========================================
-        # 6. Garde-fou : s'assurer que le flag requis pour ce tour
-        #    d'énumération (-sS / -sV / -sn) est bien présent.
-        # ==========================================
-        # Le LLM respecte généralement les instructions, mais llama3
-        # peut parfois dériver. On force le flag attendu s'il manque,
-        # plutôt que de silencieusement exécuter le mauvais scan.
-
-        if stage == "enumeration" and current_flag not in raw_command:
-            raw_command = raw_command.replace("nmap", f"nmap {current_flag}", 1)
+            # S'assurer que le flag requis est bien présent
+            if stage == "enumeration" and current_flag not in raw_command:
+                raw_command = raw_command.replace("nmap", f"nmap {current_flag}", 1)
 
         command = CommandInfo(
             command=raw_command,
@@ -266,7 +279,6 @@ Do not write anything outside the JSON.
 
         state["current_command"] = command
 
-        # Initialisation sécurisée de l'historique
         if "command_history" not in state:
             state["command_history"] = []
 

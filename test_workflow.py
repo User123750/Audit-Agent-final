@@ -29,7 +29,7 @@ state = {
     "discovered_hosts": ["192.168.3.10", "192.168.3.99"],
     
     # 4. N-gouloulih ydir ghir ping (-sn) w ydouz dghya dghya l Access Strategy
-    "commands_per_host": ["-sn"],
+    "commands_per_host": ["-sn", "-sV"],
     
     "current_host_index": 0,
     "current_command_index": 0,

@@ -33,6 +33,7 @@ class AccessStrategyAgent:
 
             if strategy is not None:
                 state["access_strategies"][ip] = strategy
+                # Afin de respecter le modèle Pydantic, on accède aux attributs
                 print(
                     f"  {ip} -> SSH access strategy: "
                     f"{strategy.username}@{ip}:{strategy.port} "
@@ -46,8 +47,8 @@ class AccessStrategyAgent:
             f"{len(state['access_strategies'])} strategy(ies) generated.\n"
         )
 
-        # Pure data step, no per-command validation loop needed —
-        # move straight to the final report.
-        state["stage"] = "done"
+        # CORRECTION : Passer au stage identity_collection (Phase 3)
+        # au lieu de terminer prématurément le workflow avec "done"
+        state["stage"] = "identity_collection"
 
         return state
