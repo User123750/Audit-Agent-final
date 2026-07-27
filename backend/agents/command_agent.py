@@ -101,6 +101,14 @@ class CommandAgent:
                     "this single host (no port scan) to confirm it is "
                     "still reachable."
                 ),
+                "-O": (
+                    "Perform OS detection (-O) on this host to identify "
+                    "the operating system family and version, along with "
+                    "Nmap's confidence percentage for each guess. This "
+                    "requires no additional port-scan flags — just -O "
+                    "alone on the target (e.g. 'nmap -O <target>'). "
+                    "Do NOT combine -O with -F or a port range."
+                ),
             }.get(
                 current_flag,
                 f"Perform a scan using the {current_flag} option on this host.",
@@ -278,6 +286,13 @@ Do not write anything outside the JSON.
         )
 
         state["current_command"] = command
+
+        # CORRECTION : chaque nouvelle commande générée doit repartir sur un
+        # guardrail/validation "propre" — sinon un Blocked/Reject/Modify de la
+        # commande précédente reste collé au state et fausse le routing du
+        # Supervisor pour la nouvelle commande (boucle infinie).
+        state["guardrail_status"] = None
+        state["validation"] = None
 
         if "command_history" not in state:
             state["command_history"] = []

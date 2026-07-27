@@ -27,10 +27,13 @@ class CommandValidator:
         "dir"
     ]
 
+    # -O retiré de cette liste : autorisé explicitement par l'encadrant
+    # pour le fingerprinting OS avec pourcentage de confiance. Nécessite
+    # des privilèges administrateur sur Windows (raw packet crafting),
+    # sinon échoue silencieusement ou renvoie une erreur.
     FORBIDDEN_FLAGS = [
         "-T5",
         "-A",
-        "-O",
         "-sU",
         "-iR",
         "--script",

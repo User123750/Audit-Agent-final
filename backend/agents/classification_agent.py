@@ -105,8 +105,10 @@ Return ONLY a valid JSON object matching the requested schema with both 'assigne
                 state["classifications"][ip] = "Unknown"
 
         print("[Classification Agent] Phase 4 terminée.")
-        
-        # Fin du pipeline actuel
-        state["stage"] = "done"
+
+        # CORRECTION : enchaîner sur la Phase 5 (Collector) au lieu de
+        # terminer directement le pipeline — Collector et Correlation
+        # existent et attendent d'être exécutés.
+        state["stage"] = "collector"
 
         return state

@@ -1,11 +1,13 @@
 """
 Tool used to parse raw Nmap output into structured HostResult objects.
 
-Handles both discovery-stage output (-sn, host status + MAC only)
-and enumeration-stage output (-sV etc., includes a port table and,
-when available, an OS guess extracted from the "Service Info" line
-produced by Nmap's own service/version detection — no dedicated OS
-scan (-O) is performed).
+Handles discovery-stage output (-sn, host status + MAC only) and
+enumeration-stage output (-sS/-sV/-O), including:
+  - the port table
+  - the "Service Info: OS: ..." guess that -sV sometimes produces
+  - the REAL -O OS fingerprint, in either of its two formats:
+      "OS details: <exact match>"
+      "Aggressive OS guesses: <guess 1> (XX%), <guess 2> (YY%), ..."
 """
 
 import re
@@ -46,10 +48,22 @@ class NmapParser:
 
     # Matches: "Service Info: OS: Windows; CPE: ..."
     #      or: "Service Info: OSs: Linux, Windows; CPE: ..."
-    # Captures whatever is between "OS:"/"OSs:" and the next ";" or
-    # end of line.
+    # Byproduct of -sV service detection, NOT a dedicated OS scan.
     _OS_INFO_PATTERN = re.compile(
         r"Service Info:.*?OSs?:\s*([^;\n]+)"
+    )
+
+    # Matches: "OS details: Linux 5.0 - 5.14"
+    # This is -O's confident, exact match — takes priority when present.
+    _OS_DETAILS_PATTERN = re.compile(
+        r"OS details:\s*([^\n]+)"
+    )
+
+    # Matches: "Aggressive OS guesses: Linux 5.4 (92%), Linux 4.15 - 5.19 (91%), ..."
+    # -O's fallback when it isn't fully confident. We keep only the FIRST
+    # guess (highest confidence), including its percentage.
+    _OS_GUESS_PATTERN = re.compile(
+        r"Aggressive OS guesses:\s*([^,\n]+\(\d+%\))"
     )
 
     @classmethod
@@ -114,14 +128,26 @@ class NmapParser:
     @classmethod
     def _parse_os_info(cls, block: str) -> str | None:
         """
-        Extract the OS guess from Nmap's "Service Info: OS: ..." line,
-        if present. This is a byproduct of -sV service detection, not
-        a dedicated OS scan (-O), so it may be absent or approximate.
+        Extract the OS fingerprint, preferring the most confident source:
+
+          1. "OS details: ..."            -> -O exact match (best)
+          2. "Aggressive OS guesses: ..."  -> -O best guess with % (fallback)
+          3. "Service Info: OS: ..."       -> -sV byproduct (least specific)
         """
 
-        match = cls._OS_INFO_PATTERN.search(block)
+        match = cls._OS_DETAILS_PATTERN.search(block)
+        if match:
+            return match.group(1).strip()
 
-        return match.group(1).strip() if match else None
+        match = cls._OS_GUESS_PATTERN.search(block)
+        if match:
+            return match.group(1).strip()
+
+        match = cls._OS_INFO_PATTERN.search(block)
+        if match:
+            return match.group(1).strip()
+
+        return None
 
     @classmethod
     def _parse_ports(cls, block: str) -> list[PortInfo]:

@@ -51,4 +51,13 @@ class AccessStrategyAgent:
         # au lieu de terminer prématurément le workflow avec "done"
         state["stage"] = "identity_collection"
 
+        # CORRECTION : current_host_index pointe après la fin de
+        # discovered_hosts (boucle d'énumération terminée) — on le
+        # réinitialise pour que l'Identity Agent reparte du premier host.
+        state["current_host_index"] = 0
+        state["current_command_index"] = 0
+        state["current_command"] = None
+        state["guardrail_status"] = None
+        state["validation"] = None
+
         return state

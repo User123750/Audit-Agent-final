@@ -82,8 +82,9 @@ No markdown, no explanations outside the JSON.
                 state["asset_tags"][ip] = ["unknown-tech"]
 
         print("[Collector Agent] Phase 5 (Tag Discovery) terminée.")
-        
-        # On fait avancer le stage vers la fin
-        state["stage"] = "done"
+
+        # CORRECTION : enchaîner sur la Phase 6 (Correlation) au lieu de
+        # terminer directement — Correlation existe et attend d'être exécutée.
+        state["stage"] = "correlation"
 
         return state

@@ -6,14 +6,16 @@ from typing import Annotated, Optional, TypedDict
 
 from backend.models.audit import AuditInfo
 from backend.models.command import CommandInfo
-from backend.models.report import ReportInfo
 from backend.models.validation import ValidationInfo
 from backend.models.host import HostResult
 from backend.models.access_strategy import AccessStrategy
 
 
-# Politique d'énumération par défaut : 3 commandes par host découvert.
-DEFAULT_ENUMERATION_COMMANDS = ["-sS", "-sV", "-sn"]
+# Politique d'énumération par défaut : 4 commandes par host découvert.
+# -O ajouté sur demande explicite de l'encadrant pour l'OS fingerprinting
+# avec pourcentage de confiance (nécessite des privilèges administrateur
+# sur Windows).
+DEFAULT_ENUMERATION_COMMANDS = ["-sS", "-sV", "-sn", "-O"]
 
 
 def merge_dict(existing: Optional[dict], new: Optional[dict]) -> dict:
@@ -36,19 +38,19 @@ def get_current_key(state: dict) -> str:
 
     if stage == "discovery":
         return "discovery"
-        
+
     # Gestion intelligente de l'index pour la Phase d'identité
     if stage == "identity_collection":
         discovered = state.get("discovered_hosts", [])
         host_idx = state.get("current_host_index", 0)
-        
+
         # L'IdentityAgent incrémente l'index AVANT l'exécution et le rapport.
         if state.get("current_command") is not None:
             host_idx -= 1
-            
+
         if not discovered or host_idx < 0 or host_idx >= len(discovered):
             return "unknown_target"
-        return discovered[host_idx]
+        return f"{discovered[host_idx]}_identity"
 
     # En phase d'énumération, on retourne host + commande courante
     discovered = state.get("discovered_hosts", [])
@@ -103,13 +105,17 @@ class AuditState(TypedDict):
     # Execution output
     execution_output: Optional[str]
 
-    # Final report
-    report: Optional[ReportInfo]
+    # Rapport final lisible (texte brut, généré par ReportAgent une fois
+    # stage == "done"). Ce champ n'était jamais rempli par aucun agent
+    # avant cette correction — on le garde en texte simple (pas ReportInfo,
+    # qui est un modèle strict pensé pour UNE commande, pas pour un audit
+    # complet multi-hosts).
+    report: Optional[str]
 
-    # --- Pipeline discovery -> enumeration -> access_strategy -> identity_collection -> classification -> done ---
+    # --- Pipeline discovery -> enumeration -> access_strategy -> identity_collection -> classification -> collector -> correlation -> done ---
 
     # Contrôle du flux de l'audit
-    stage: str  # "discovery" | "enumeration" | "access_strategy" | "identity_collection" | "classification" | "done"
+    stage: str  # "discovery" | "enumeration" | "access_strategy" | "identity_collection" | "classification" | "collector" | "correlation" | "done"
 
     # Liste des cibles identifiées lors de la phase discovery
     discovered_hosts: list[str]
@@ -126,18 +132,20 @@ class AuditState(TypedDict):
     # Accumulateur des résultats bruts par clé (host_flag)
     host_results: Annotated[dict[str, str], merge_dict]
 
-    # Accumulateur des rapports structurés par étape/host_flag
-    partial_reports: Annotated[dict[str, ReportInfo], merge_dict]
+    # Accumulateur des rapports texte partiels par étape/host_flag
+    partial_reports: Annotated[dict[str, str], merge_dict]
 
     # Accumulateur des résultats STRUCTURÉS par host (IP)
     structured_hosts: Annotated[dict[str, HostResult], merge_dict]
 
     # Stratégies d'accès SSH générées pour les hosts éligibles
     access_strategies: Annotated[dict[str, AccessStrategy], merge_dict]
-    
+
     # NOUVEAU (Phase 4): Dictionnaire pour stocker la classe finale de chaque IP (ex: "Linux Endpoint")
     classifications: Annotated[dict[str, str], merge_dict]
     # NOUVEAU (Phase 5): Dictionnaire pour stocker les tags dynamiques par IP
     asset_tags: Annotated[dict[str, list[str]], merge_dict]
+    # NOUVEAU (Phase 6): Dictionnaire pour stocker les recommandations de sécurité par IP
+    vulnerabilities: Annotated[dict[str, list[str]], merge_dict]
     # Auto-approbation par lots
     batch_approved: Optional[bool]

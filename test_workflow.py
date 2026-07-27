@@ -1,50 +1,48 @@
+import logging
+
 from backend.models.audit import AuditInfo
-from langgraph.workflow import Workflow
+from backend.models.state import AuditState, DEFAULT_ENUMERATION_COMMANDS
+from core_langgraph.graph import graph
 
-state = {
-    "audit": AuditInfo(
-        company="Test Company",
-        engineer="Test Engineer",
-        objective="Network Discovery"
-    ),
-    
-    # 1. N-simuliw blli Network Agent deja dar khedmto bach n-zrbo
-    "network_info": {
-        "ip_address": "192.168.3.0",
-        "subnet_mask": "255.255.255.0",
-        "gateway": "192.168.3.99"
-    },
-    
-    "command_history": [],
-    "current_command": None,
-    "guardrail_status": None,
-    "validation": None,
-    "execution_output": None,
-    "report": None,
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("OddNet.TestWorkflow")
 
-    # 2. N-bdaw directement mn l'Enumeration w n-ne9zo Discovery
-    "stage": "enumeration",
-    
-    # 3. N-3tiweh ghir les 2 IPs li 3ndna fihom l'accès f JSON!
-    "discovered_hosts": ["192.168.3.10", "192.168.3.99"],
-    
-    # 4. N-gouloulih ydir ghir ping (-sn) w ydouz dghya dghya l Access Strategy
-    "commands_per_host": ["-sn", "-sV"],
-    
-    "current_host_index": 0,
-    "current_command_index": 0,
-    "host_results": {},
-    "partial_reports": {},
-    "structured_hosts": {},
-    "access_strategies": {},
-    
-    "batch_approved": None
-}
+if __name__ == "__main__":
+    print("=== DÉMARRAGE DU PIPELINE D'AUDIT RÉEL (ODDNET PFA) ===")
 
-print("\n========== STARTING ODDNET AUDIT TEST ==========\n")
+    audit = AuditInfo(
+        company="Test",
+        engineer="Rir",
+        objective="Audit rapide de test isolé",
+    )
 
-result = Workflow.run(state)
+    initial_state: AuditState = {
+        "audit": audit,
+        "network_info": None,
+        "command_history": [],
+        "current_command": None,
+        "guardrail_status": None,
+        "validation": None,
+        "execution_output": None,
+        "report": None,
+        "stage": "discovery",
+        "discovered_hosts": [],
+        "current_host_index": 0,
+        "current_command_index": 0,
+        "commands_per_host": DEFAULT_ENUMERATION_COMMANDS,
+        "host_results": {},
+        "partial_reports": {},
+        "structured_hosts": {},
+        "access_strategies": {},
+        "classifications": {},
+        "asset_tags": {},
+        "vulnerabilities": {},
+        "batch_approved": None,
+    }
 
-print("\n========== AUDIT FINISHED ==========\n")
-print("\n========== FINAL STATE ==========\n")
-print(result)
+    print("\n[*] Lancement du graphe LangGraph (Exécution réelle)...")
+
+    final_state = graph.invoke(initial_state, config={"recursion_limit": 500})
+
+    # Affichage du rapport final lisible UNIQUEMENT (pas tout le state brut)
+    print("\n" + final_state.get("report", "Aucun rapport généré."))
