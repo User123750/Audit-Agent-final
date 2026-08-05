@@ -20,8 +20,6 @@ class NmapParser:
     Parses raw Nmap stdout into a list of structured HostResult objects.
     """
 
-    # Splits the output into one block per host, starting at each
-    # "Nmap scan report for ..." line.
     _HOST_BLOCK_PATTERN = re.compile(
         r"Nmap scan report for.*?(?=Nmap scan report for|\Z)",
         re.DOTALL
@@ -41,60 +39,42 @@ class NmapParser:
     )
 
     # Matches lines like: "22/tcp   open  ssh     OpenSSH 9.0"
+    # NOTE: separators use [ \t]+ (space/tab only) instead of \s+, and the
+    # version group is [^\n]+ instead of .+. \s+ also matches "\n", so on a
+    # port line with NO version (e.g. "3389/tcp open  ms-wbt-server") the
+    # old pattern would swallow the newline and capture the *next* line's
+    # text as this port's version — corrupting both ports. Restricting the
+    # separators/version group to same-line characters fixes that.
     _PORT_LINE_PATTERN = re.compile(
-        r"^(\d+)/(tcp|udp)\s+(\S+)\s+(\S+)(?:\s+(.+))?$",
+        r"^(\d+)/(tcp|udp)[ \t]+(\S+)[ \t]+(\S+)(?:[ \t]+([^\n]+))?$",
         re.MULTILINE
     )
 
-    # Matches: "Service Info: OS: Windows; CPE: ..."
-    #      or: "Service Info: OSs: Linux, Windows; CPE: ..."
-    # Byproduct of -sV service detection, NOT a dedicated OS scan.
     _OS_INFO_PATTERN = re.compile(
         r"Service Info:.*?OSs?:\s*([^;\n]+)"
     )
 
-    # Matches: "OS details: Linux 5.0 - 5.14"
-    # This is -O's confident, exact match — takes priority when present.
     _OS_DETAILS_PATTERN = re.compile(
         r"OS details:\s*([^\n]+)"
     )
 
-    # Matches: "Aggressive OS guesses: Linux 5.4 (92%), Linux 4.15 - 5.19 (91%), ..."
-    # -O's fallback when it isn't fully confident. We keep only the FIRST
-    # guess (highest confidence), including its percentage.
     _OS_GUESS_PATTERN = re.compile(
         r"Aggressive OS guesses:\s*([^,\n]+\(\d+%\))"
     )
 
     @classmethod
     def parse(cls, output: str) -> list[HostResult]:
-        """
-        Parse the full raw Nmap output (potentially multiple hosts)
-        into a list of HostResult objects.
-        """
-
         blocks = cls._HOST_BLOCK_PATTERN.findall(output)
-
         results = []
-
         for block in blocks:
-
             host = cls._parse_host_block(block)
-
             if host is not None:
                 results.append(host)
-
         return results
 
     @classmethod
     def _parse_host_block(cls, block: str) -> HostResult | None:
-        """
-        Parse a single host's block of output into a HostResult.
-        Returns None if no IP address could be found (malformed block).
-        """
-
         ip_match = cls._IP_PATTERN.search(block)
-
         if not ip_match:
             return None
 
@@ -112,7 +92,6 @@ class NmapParser:
         vendor = mac_match.group(2) if mac_match and mac_match.group(2) else None
 
         os_info = cls._parse_os_info(block)
-
         ports = cls._parse_ports(block)
 
         return HostResult(
@@ -127,14 +106,6 @@ class NmapParser:
 
     @classmethod
     def _parse_os_info(cls, block: str) -> str | None:
-        """
-        Extract the OS fingerprint, preferring the most confident source:
-
-          1. "OS details: ..."            -> -O exact match (best)
-          2. "Aggressive OS guesses: ..."  -> -O best guess with % (fallback)
-          3. "Service Info: OS: ..."       -> -sV byproduct (least specific)
-        """
-
         match = cls._OS_DETAILS_PATTERN.search(block)
         if match:
             return match.group(1).strip()
@@ -151,18 +122,9 @@ class NmapParser:
 
     @classmethod
     def _parse_ports(cls, block: str) -> list[PortInfo]:
-        """
-        Parse the port table (present only during enumeration scans)
-        into a list of PortInfo objects. Returns [] if no port table
-        is present (e.g. discovery-stage -sn output).
-        """
-
         ports = []
-
         for match in cls._PORT_LINE_PATTERN.finditer(block):
-
             port_number, protocol, state, service, version = match.groups()
-
             ports.append(
                 PortInfo(
                     port=int(port_number),
@@ -172,5 +134,4 @@ class NmapParser:
                     version=version.strip() if version else None,
                 )
             )
-
         return ports

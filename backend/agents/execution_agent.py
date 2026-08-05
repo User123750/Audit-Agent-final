@@ -7,6 +7,7 @@ enumeration — merging structured per-scan results (HostResult) into
 a single deduplicated record per IP for the final report.
 """
 
+import os
 import re
 import subprocess
 import paramiko  # Ajout de Paramiko pour le support SSH
@@ -33,9 +34,6 @@ class ExecutionAgent:
 
         print("\n[Execution Agent] Starting execution...\n")
 
-        # ==========================================
-        # Check command exists & Engineer approval
-        # ==========================================
         command_info = state.get("current_command")
         if command_info is None:
             state["execution_output"] = "Execution failed: no command found."
@@ -50,11 +48,7 @@ class ExecutionAgent:
         print(f"Executing: {command}\n")
 
         try:
-            # ==========================================
-            # ROUTAGE : Nmap (Local) vs Bash (SSH Distant)
-            # ==========================================
             if command.startswith("nmap") or command.startswith("arp-scan"):
-                # Exécution NMAP locale via subprocess
                 result = subprocess.run(
                     command,
                     shell=True,
@@ -66,47 +60,45 @@ class ExecutionAgent:
                 output = result.stdout
                 if result.stderr:
                     output += "\n\nErrors:\n" + result.stderr
-                # Nettoyage spécifique Nmap
                 output = ExecutionAgent._strip_fingerprints(output)
             else:
                 # Exécution Bash via SSH (Module 5)
-                # FIX OFF-BY-ONE : L'Identity Agent a déjà incrémenté l'index (+1). 
-                # L'IP en cours d'exécution est donc obligatoirement à l'index - 1.
                 discovered = state.get("discovered_hosts", [])
                 host_idx = state.get("current_host_index", 1) - 1
-                
+
                 if 0 <= host_idx < len(discovered):
                     target_ip = discovered[host_idx]
                 else:
                     target_ip = "unknown_target"
-                
-                # Récupération dynamique depuis le fichier JSON
+
                 credentials = CredentialStore.get_credentials(target_ip)
-                
+
                 if credentials:
                     username = credentials.get("username")
                     cred_id = credentials.get("credential_id")
-                    
+
                     print(f"[Execution Agent] Authentification trouvée pour {target_ip} (Credential ID: {cred_id}).")
-                    
-                    # SIMULATION D'UN VAULT SÉCURISÉ
-                    # En production, ce dictionnaire doit être remplacé par un vrai gestionnaire de secrets
-                    mock_vault = {
-                        "linux_prod_01": "Password123!",
-                        "admin_cred_01": "SuperSecretRootPwd!"
-                    }
-                    
-                    actual_password = mock_vault.get(cred_id)
-                    
+
+                    # Récupération du mot de passe depuis une variable d'environnement,
+                    # ex: ODDNET_CRED_linux_prod_01=le_vrai_mdp (à définir dans un .env,
+                    # jamais commité, jamais dans le code). Remplace l'ancien mock_vault
+                    # hardcodé.
+                    env_var_name = f"ODDNET_CRED_{cred_id}"
+                    actual_password = os.environ.get(env_var_name)
+
                     if actual_password:
                         output = ExecutionAgent._run_ssh_command(
                             ip=target_ip,
-                            username=username, 
+                            username=username,
                             password=actual_password,
                             command=command
                         )
                     else:
-                        output = f"Execution blocked: Le mot de passe pour le credential_id '{cred_id}' est introuvable dans le Vault."
+                        output = (
+                            f"Execution blocked: mot de passe introuvable pour le "
+                            f"credential_id '{cred_id}'. Définis la variable "
+                            f"d'environnement '{env_var_name}' avant de lancer l'audit."
+                        )
                         print(output)
                 else:
                     output = f"Execution blocked: Aucun credential trouvé pour l'IP {target_ip} dans le store."
@@ -114,30 +106,20 @@ class ExecutionAgent:
 
             state["execution_output"] = output
 
-            # ==========================================
-            # Archive raw output
-            # ==========================================
-            # FIX: S'assurer que la clé d'archivage correspond à l'IP SSH traitée
             if command.startswith("nmap") or command.startswith("arp-scan"):
                 key = get_current_key(state)
             else:
                 key = target_ip
-                
+
             if "host_results" not in state:
                 state["host_results"] = {}
             state["host_results"][key] = output
 
-            # ==========================================
-            # Discovery stage: extract live hosts
-            # ==========================================
             if state.get("stage") == "discovery" and command.startswith("nmap"):
                 hosts = ExecutionAgent._parse_discovery_hosts(output)
                 state["discovered_hosts"] = hosts
                 print(f"[Execution Agent] Discovered {len(hosts)} host(s): {hosts}\n")
 
-            # ==========================================
-            # Enumeration stage: parse + merge
-            # ==========================================
             elif state.get("stage") == "enumeration" and command.startswith("nmap"):
                 ExecutionAgent._merge_structured_result(state, output)
 
@@ -148,10 +130,6 @@ class ExecutionAgent:
 
         print("\n[Execution Agent] Finished.\n")
         return state
-
-    # ==========================================
-    # Helpers
-    # ==========================================
 
     @staticmethod
     def _run_ssh_command(ip: str, username: str, password: str, command: str) -> str:

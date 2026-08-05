@@ -176,7 +176,15 @@ class ReportAgent:
                 report += f"  - Statut         : {host.status.value.upper()}\n"
                 report += f"  - Adresse MAC    : {host.mac_address or 'Inconnue'}\n"
                 report += f"  - Vendor         : {host.vendor or 'Inconnu'}\n"
-                report += f"  - Empreinte OS   : {host.os_info or 'Inconnue'}\n"
+                if host.os_info:
+                    if host.os_confidence is not None:
+                        confidence_str = f" (confiance : {host.os_confidence}%)"
+                    else:
+                        confidence_str = " (confiance : N/A)"
+                    os_line = f"{host.os_info}{confidence_str}"
+                else:
+                    os_line = "Inconnue"
+                report += f"  - Empreinte OS   : {os_line}\n"
                 report += f"  - Ports Ouverts  : {len(host.ports)} port(s)\n"
                 for p in host.ports:
                     version = f" ({p.version})" if p.version else ""

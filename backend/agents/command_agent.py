@@ -53,7 +53,10 @@ class CommandAgent:
                 "WITH version detection and a SYN scan (per audit requirement). "
                 "Use flags: -sS -sV, combined with -F to keep the scan fast "
                 "enough on a full subnet (avoid full port range scans here). "
-                "Example: nmap -sS -sV -F <subnet>. "
+                "Also add -T4 (faster timing template, still safe/reliable — "
+                "NOT the forbidden -T5) and -n (skip reverse DNS lookups, "
+                "which otherwise add delay per host). "
+                "Example: nmap -sS -sV -F -T4 -n <subnet>. "
                 "Do NOT perform a full 1-65535 port scan on the entire subnet."
             )
 
@@ -89,24 +92,30 @@ class CommandAgent:
             flag_instructions = {
                 "-sS": (
                     "Perform a SYN scan (-sS) on this host to identify open "
-                    "ports. Combine with -F to keep it fast (top 100 ports)."
+                    "ports. Combine with -F to keep it fast (top 100 ports), "
+                    "plus -T4 (faster, still reliable timing) and -n (skip "
+                    "reverse DNS lookups)."
                 ),
                 "-sV": (
                     "Perform a version detection scan (-sV) on this host to "
                     "identify service versions on open ports. Combine with "
-                    "-F to keep it fast (top 100 ports)."
+                    "-F to keep it fast (top 100 ports), plus -T4 and -n."
                 ),
                 "-sn": (
                     "Perform a host discovery / ping-only scan (-sn) on "
                     "this single host (no port scan) to confirm it is "
-                    "still reachable."
+                    "still reachable. Add -n to skip reverse DNS lookups."
                 ),
                 "-O": (
                     "Perform OS detection (-O) on this host to identify "
                     "the operating system family and version, along with "
                     "Nmap's confidence percentage for each guess. This "
                     "requires no additional port-scan flags — just -O "
-                    "alone on the target (e.g. 'nmap -O <target>'). "
+                    "alone on the target (e.g. 'nmap -O --max-os-tries=1 -n "
+                    "<target>'). --max-os-tries=1 stops Nmap from retrying "
+                    "its OS fingerprint guesses multiple times, which is "
+                    "the main reason -O is slow — one try is enough since "
+                    "we already report the confidence percentage. "
                     "Do NOT combine -O with -F or a port range."
                 ),
             }.get(

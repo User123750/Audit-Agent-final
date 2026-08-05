@@ -16,6 +16,18 @@ if __name__ == "__main__":
         objective="Audit rapide de test isolé",
     )
 
+    # ==========================================
+    # MODE TEST CIBLÉ
+    # ==========================================
+    # Remplis cette liste avec les IP que tu veux tester (2, 3, ou plus).
+    # Laisse-la vide ([]) pour revenir au comportement normal : discovery
+    # sur tout le sous-réseau, puis enumeration sur tous les hosts trouvés.
+    TEST_HOSTS = []
+
+    if TEST_HOSTS:
+        print(f"[*] Mode test ciblé activé — hosts : {TEST_HOSTS}")
+        print("[*] La phase 'discovery' (scan du sous-réseau entier) est sautée.\n")
+
     initial_state: AuditState = {
         "audit": audit,
         "network_info": None,
@@ -25,8 +37,10 @@ if __name__ == "__main__":
         "validation": None,
         "execution_output": None,
         "report": None,
-        "stage": "discovery",
-        "discovered_hosts": [],
+        # Si TEST_HOSTS est rempli, on saute directement à "enumeration" avec
+        # ces hosts déjà "découverts" — sinon comportement normal (discovery).
+        "stage": "enumeration" if TEST_HOSTS else "discovery",
+        "discovered_hosts": TEST_HOSTS if TEST_HOSTS else [],
         "current_host_index": 0,
         "current_command_index": 0,
         "commands_per_host": DEFAULT_ENUMERATION_COMMANDS,
