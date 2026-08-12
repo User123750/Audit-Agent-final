@@ -31,15 +31,23 @@ class ClassificationAgent:
 
             # 1. Préparation des données factuelles pour le LLM
             host_info = structured_hosts.get(ip)
-            
-            nmap_data = "Aucune donnée Nmap structurée disponible."
-            if host_info:
-                ports_str = ", ".join([f"{p.port}/{p.protocol} ({p.service})" for p in host_info.ports])
-                nmap_data = (
-                    f"MAC Address: {host_info.mac_address}\n"
-                    f"Vendor: {host_info.vendor}\n"
-                    f"Open Ports: {ports_str if ports_str else 'None detected'}\n"
-                )
+
+            # CORRECTION : si aucune donnée Nmap structurée n'existe pour cet
+            # hôte (commande rejetée, timeout, erreur d'exécution...), on ne
+            # laisse PAS le LLM deviner une classe sans preuve — on le classe
+            # directement "Unknown" avec une justification honnête, et on
+            # passe à l'hôte suivant sans appeler le LLM.
+            if host_info is None:
+                state["classifications"][ip] = "Unknown"
+                print(f"  -> Résultat : Unknown (aucune donnée Nmap disponible pour {ip})\n")
+                continue
+
+            ports_str = ", ".join([f"{p.port}/{p.protocol} ({p.service})" for p in host_info.ports])
+            nmap_data = (
+                f"MAC Address: {host_info.mac_address}\n"
+                f"Vendor: {host_info.vendor}\n"
+                f"Open Ports: {ports_str if ports_str else 'None detected'}\n"
+            )
 
             # L'output SSH de la phase 3 a été archivé sous la clé IP
             ssh_output = host_results.get(ip, "Aucun résultat SSH (Identity Collection) disponible.")
@@ -89,14 +97,14 @@ Return ONLY a valid JSON object matching the requested schema with both 'assigne
                     content = content[3:]
                 if content.endswith("```"):
                     content = content[:-3]
-                
+
                 data = json.loads(content.strip())
-                
+
                 # Validation Pydantic
                 classification = HostClassification(**data)
-                
+
                 state["classifications"][ip] = classification.assigned_class.value
-                
+
                 print(f"  -> Résultat : {classification.assigned_class.value}")
                 print(f"  -> Justification : {classification.justification}\n")
 

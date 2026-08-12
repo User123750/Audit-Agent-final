@@ -1,5 +1,7 @@
 import logging
 
+from backend import config  # charge le .env AVANT tout le reste (credentials SSH inclus)
+
 from backend.models.audit import AuditInfo
 from backend.models.state import AuditState, DEFAULT_ENUMERATION_COMMANDS
 from core_langgraph.graph import graph
@@ -22,7 +24,7 @@ if __name__ == "__main__":
     # Remplis cette liste avec les IP que tu veux tester (2, 3, ou plus).
     # Laisse-la vide ([]) pour revenir au comportement normal : discovery
     # sur tout le sous-réseau, puis enumeration sur tous les hosts trouvés.
-    TEST_HOSTS = []
+    TEST_HOSTS = ["192.168.3.20", "192.168.3.10"]
 
     if TEST_HOSTS:
         print(f"[*] Mode test ciblé activé — hosts : {TEST_HOSTS}")

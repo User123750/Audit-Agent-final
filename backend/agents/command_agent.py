@@ -43,6 +43,8 @@ class CommandAgent:
         # 1. Définition de la cible et de l'objectif selon le stage
         # ==========================================
 
+        os_family = "unknown"
+
         if stage == "discovery":
 
             target_info = f"Network Subnet based on IP {network.get('ip_address')} and Mask {network.get('subnet_mask')}"
@@ -142,21 +144,42 @@ class CommandAgent:
 
         elif stage == "identity_collection":
             discovered_hosts = state.get("discovered_hosts", [])
-            
+
             # L'IdentityAgent a déjà incrémenté l'index, la cible actuelle est l'index - 1
-            host_idx = state.get("current_host_index", 1) - 1 
+            host_idx = state.get("current_host_index", 1) - 1
             if host_idx >= 0 and host_idx < len(discovered_hosts):
                 current_target = discovered_hosts[host_idx]
             else:
                 current_target = "Unknown SSH Target"
 
             target_info = f"SSH Session on Target IP: {current_target}"
-            
+
+            # OS déjà détecté par Nmap (-O / -sV), résolu par IdentityAgent.
+            # On ne laisse plus le LLM deviner l'OS via le feedback.
+            os_family = state.get("detected_os_family", "unknown")
+
+            if os_family == "windows":
+                os_instruction = (
+                    "The target's OS has been DETECTED as WINDOWS (via Nmap). "
+                    "You MUST propose 'systeminfo' as the command."
+                )
+            elif os_family == "linux":
+                os_instruction = (
+                    "The target's OS has been DETECTED as LINUX (via Nmap). "
+                    "You MUST propose 'cat /etc/os-release' (fallback: 'uname -a' "
+                    "or 'hostnamectl') as the command."
+                )
+            else:
+                os_instruction = (
+                    "The target's OS could not be confidently detected by Nmap. "
+                    "Default to a Linux command ('cat /etc/os-release'), unless "
+                    "the engineer's feedback below says otherwise."
+                )
+
             stage_instructions = (
                 "STAGE: IDENTITY COLLECTION (Phase 3)\n"
                 f"Your goal is to propose ONE safe command via SSH to identify the Operating System of {current_target}.\n"
-                "You must propose a generic Linux command coherent with the architecture document (e.g., 'cat /etc/os-release', 'uname -r', 'hostnamectl').\n"
-                "If the engineer's feedback implies it is a Windows machine, use 'systeminfo'.\n"
+                f"{os_instruction}\n"
                 "Do NOT use Nmap here. You are already executing a local command inside the machine via SSH.\n"
                 "Do NOT use forbidden characters for injection like ';', '&', '|', '>', '<'. Keep it to a single safe command."
             )
@@ -276,6 +299,24 @@ Do not write anything outside the JSON.
             # S'assurer que le flag requis est bien présent
             if stage == "enumeration" and current_flag not in raw_command:
                 raw_command = raw_command.replace("nmap", f"nmap {current_flag}", 1)
+
+        # Garde-fou identity_collection : si le LLM ignore la détection OS
+        # (et que l'ingénieur n'a pas explicitement demandé autre chose via
+        # Modify), on force la commande correcte.
+        if stage == "identity_collection" and os_family in ("windows", "linux"):
+            has_modify_feedback = (
+                validation is not None
+                and validation.action == "Modify"
+                and validation.comments
+            )
+            if not has_modify_feedback:
+                lower_cmd = raw_command.lower()
+                if os_family == "windows" and "systeminfo" not in lower_cmd:
+                    raw_command = "systeminfo"
+                elif os_family == "linux" and not any(
+                    marker in lower_cmd for marker in ("os-release", "uname", "hostnamectl")
+                ):
+                    raw_command = "cat /etc/os-release"
 
         command = CommandInfo(
             command=raw_command,

@@ -59,7 +59,7 @@ class NmapParser:
     )
 
     _OS_GUESS_PATTERN = re.compile(
-        r"Aggressive OS guesses:\s*([^,\n]+\(\d+%\))"
+        r"Aggressive OS guesses:\s*([^,\n]+?)\s*\((\d+)%\)"
     )
 
     @classmethod
@@ -91,7 +91,7 @@ class NmapParser:
         mac_address = mac_match.group(1) if mac_match else None
         vendor = mac_match.group(2) if mac_match and mac_match.group(2) else None
 
-        os_info = cls._parse_os_info(block)
+        os_info, os_confidence = cls._parse_os_info(block)
         ports = cls._parse_ports(block)
 
         return HostResult(
@@ -100,25 +100,32 @@ class NmapParser:
             mac_address=mac_address,
             vendor=vendor,
             os_info=os_info,
+            os_confidence=os_confidence,
             ports=ports,
             raw_output=block.strip(),
         )
 
     @classmethod
-    def _parse_os_info(cls, block: str) -> str | None:
+    def _parse_os_info(cls, block: str) -> tuple[str | None, int | None]:
+        """
+        Retourne (os_info, os_confidence).
+        - "OS details:" (match exact) -> confidence = 100
+        - "Aggressive OS guesses:" -> confidence = pourcentage parsé
+        - "Service Info: OS:" (sous-produit de -sV, pas de %) -> confidence = None
+        """
         match = cls._OS_DETAILS_PATTERN.search(block)
         if match:
-            return match.group(1).strip()
+            return (match.group(1).strip(), 100)
 
         match = cls._OS_GUESS_PATTERN.search(block)
         if match:
-            return match.group(1).strip()
+            return (match.group(1).strip(), int(match.group(2)))
 
         match = cls._OS_INFO_PATTERN.search(block)
         if match:
-            return match.group(1).strip()
+            return (match.group(1).strip(), None)
 
-        return None
+        return (None, None)
 
     @classmethod
     def _parse_ports(cls, block: str) -> list[PortInfo]:

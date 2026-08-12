@@ -17,6 +17,7 @@ from backend.models.validation import ValidationAction
 from backend.models.host import HostResult
 from backend.tools.nmap_parser import NmapParser
 from backend.tools.credential_store import CredentialStore
+from backend.api import hitl_bridge
 
 class ExecutionAgent:
 
@@ -46,6 +47,8 @@ class ExecutionAgent:
 
         command = command_info.command
         print(f"Executing: {command}\n")
+
+        target_ip = None
 
         try:
             if command.startswith("nmap") or command.startswith("arp-scan"):
@@ -79,10 +82,6 @@ class ExecutionAgent:
 
                     print(f"[Execution Agent] Authentification trouvée pour {target_ip} (Credential ID: {cred_id}).")
 
-                    # Récupération du mot de passe depuis une variable d'environnement,
-                    # ex: ODDNET_CRED_linux_prod_01=le_vrai_mdp (à définir dans un .env,
-                    # jamais commité, jamais dans le code). Remplace l'ancien mock_vault
-                    # hardcodé.
                     env_var_name = f"ODDNET_CRED_{cred_id}"
                     actual_password = os.environ.get(env_var_name)
 
@@ -117,11 +116,34 @@ class ExecutionAgent:
 
             if state.get("stage") == "discovery" and command.startswith("nmap"):
                 hosts = ExecutionAgent._parse_discovery_hosts(output)
+                # Limite de test retirée — audite maintenant TOUS les hôtes découverts.
                 state["discovered_hosts"] = hosts
                 print(f"[Execution Agent] Discovered {len(hosts)} host(s): {hosts}\n")
 
             elif state.get("stage") == "enumeration" and command.startswith("nmap"):
                 ExecutionAgent._merge_structured_result(state, output)
+
+            # --- Trace complète pour le frontend (audit lancé via l'API) ---
+            audit_id = state.get("audit_id")
+            if audit_id is not None:
+                command_payload = {
+                    "command": command,
+                    "objective": command_info.objective,
+                    "risk_level": command_info.risk_level.value,
+                }
+                validation_payload = None
+                if validation is not None:
+                    validation_payload = {
+                        "action": validation.action.value,
+                        "comments": validation.comments,
+                    }
+                hitl_bridge.append_trace(
+                    audit_id,
+                    state.get("stage"),
+                    command_payload,
+                    validation_payload,
+                    output,
+                )
 
         except subprocess.TimeoutExpired:
             state["execution_output"] = "Execution failed: timeout exceeded."
@@ -172,6 +194,7 @@ class ExecutionAgent:
             merged_mac = existing.mac_address or new_host.mac_address
             merged_vendor = existing.vendor or new_host.vendor
             merged_os_info = existing.os_info or new_host.os_info
+            merged_os_confidence = existing.os_confidence if existing.os_info else new_host.os_confidence
 
             ports_by_number = {p.port: p for p in existing.ports}
             for port in new_host.ports:
@@ -186,6 +209,7 @@ class ExecutionAgent:
                 mac_address=merged_mac,
                 vendor=merged_vendor,
                 os_info=merged_os_info,
+                os_confidence=merged_os_confidence,
                 ports=merged_ports,
                 raw_output=existing.raw_output + "\n---\n" + new_host.raw_output,
             )

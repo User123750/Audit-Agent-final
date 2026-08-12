@@ -7,20 +7,18 @@ job is purely about ADVANCING the host loop:
 
   1. Starting at current_host_index, find the next host in
      discovered_hosts that has an entry in access_strategies.
-  2. If found: set current_host_index to (that index + 1) — this matches
-     the convention already used by CommandAgent and get_current_key
-     ("the index has already been incremented before the command/report
-     step runs, so the real target is index - 1").
-  3. Delegate command generation to CommandAgent.run(state), which
-     already contains the full identity_collection prompt branch
-     (SSH-safe command via Ollama, e.g. 'cat /etc/os-release',
-     'systeminfo', ...).
+  2. If found: set current_host_index to (that index + 1), and resolve
+     the OS family already detected by Nmap (structured_hosts[ip].os_info)
+     into state["detected_os_family"] so CommandAgent doesn't have to
+     guess the OS from engineer feedback anymore.
+  3. Delegate command generation to CommandAgent.run(state).
   4. If no eligible host remains, Phase 3 is over: move to stage
      "classification" (Phase 4) and leave current_command as None.
 """
 
 from backend.models.state import AuditState
 from backend.agents.command_agent import CommandAgent
+from backend.utils.os_detect import detect_os_family
 
 
 class IdentityAgent:
@@ -48,9 +46,18 @@ class IdentityAgent:
         target_ip = discovered_hosts[host_idx]
         strategy = access_strategies[target_ip]
 
+        # OS déjà détecté par Nmap (-O / -sV) pendant l'énumération —
+        # on le résout ici une fois, CommandAgent l'utilisera directement.
+        structured_hosts = state.get("structured_hosts", {})
+        host_result = structured_hosts.get(target_ip)
+        os_info = host_result.os_info if host_result is not None else None
+        os_family = detect_os_family(os_info)
+        state["detected_os_family"] = os_family
+
         print(
             f"\n[Identity Agent] Host cible : {target_ip} "
-            f"(SSH {strategy.username}@{target_ip}:{strategy.port})\n"
+            f"(SSH {strategy.username}@{target_ip}:{strategy.port}) "
+            f"— OS détecté : {os_family} (os_info='{os_info}')\n"
         )
 
         # Convention : on avance l'index AVANT de générer la commande, pour
