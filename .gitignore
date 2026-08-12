@@ -1,0 +1,7 @@
+@"
+node_modules/
+.env
+__pycache__/
+*.pyc
+backend/config/credential_store.json
+"@ | Set-Content .gitignore

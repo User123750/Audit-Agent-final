@@ -63,6 +63,19 @@ class SupervisorAgent:
             return "correlation"
 
         # ==========================================
+        # 2g. Garde-fou : énumération sans hôte découvert
+        # ==========================================
+        # Si la phase discovery n'a trouvé AUCUN hôte (ou que la boucle
+        # d'énumération est déjà arrivée au bout), il ne faut jamais router
+        # vers "command" : current_host_index serait hors limites et
+        # CommandAgent planterait. On saute directement à access_strategy.
+        if state.get("stage") == "enumeration":
+            discovered = state.get("discovered_hosts", [])
+            host_idx = state.get("current_host_index", 0)
+            if not discovered or host_idx >= len(discovered):
+                return "access_strategy"
+
+        # ==========================================
         # 3. Command generation
         # ==========================================
         if state.get("current_command") is None:

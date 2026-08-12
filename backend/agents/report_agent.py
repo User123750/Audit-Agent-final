@@ -224,16 +224,49 @@ class ReportAgent:
             report += f"> {ip} -> Classe : {asset_class} | Tags : {', '.join(tags) if tags else 'Aucun'}\n"
         report += "\n" + "-" * 60 + "\n\n"
 
-        # --- 6. RECOMMANDATIONS DE SÉCURITÉ (Phase 6) ---
-        report += "### 6. ANALYSE DES RISQUES & RECOMMANDATIONS\n\n"
+        # --- 6. RÉSUMÉ EXÉCUTIF DES RISQUES ---
+        severity_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+        for ip_data in vulnerabilities.values():
+            risks_for_count = ip_data.get("risks", []) if isinstance(ip_data, dict) else []
+            for risk in risks_for_count:
+                sev = risk.get("severity", "Medium") if isinstance(risk, dict) else "Medium"
+                if sev in severity_counts:
+                    severity_counts[sev] += 1
+
+        report += "### 6. RÉSUMÉ EXÉCUTIF DES RISQUES\n\n"
+        report += (
+            f"• Critiques : {severity_counts['Critical']}   "
+            f"• Élevés : {severity_counts['High']}   "
+            f"• Moyens : {severity_counts['Medium']}   "
+            f"• Faibles : {severity_counts['Low']}\n\n"
+        )
+        report += "-" * 60 + "\n\n"
+
+        # --- 7. ANALYSE DES RISQUES & RECOMMANDATIONS PAR MACHINE (Phase 6) ---
+        report += "### 7. ANALYSE DES RISQUES & RECOMMANDATIONS PAR MACHINE\n\n"
         for ip in discovered_hosts:
-            recs = vulnerabilities.get(ip, [])
+            ip_data = vulnerabilities.get(ip, {})
+            risks = ip_data.get("risks", []) if isinstance(ip_data, dict) else []
+            recs = ip_data.get("recommendations", []) if isinstance(ip_data, dict) else (ip_data or [])
+
             report += f">> ANALYSE DE SÉCURITÉ POUR LA MACHINE : {ip}\n"
-            if recs:
-                for idx, rec in enumerate(recs, 1):
-                    report += f"  {idx}. [RECOMMANDATION] {rec}\n"
+
+            if risks:
+                report += "  Risques identifiés :\n"
+                for idx, risk in enumerate(risks, 1):
+                    severity = risk.get("severity", "Medium") if isinstance(risk, dict) else "Medium"
+                    description = risk.get("description", "") if isinstance(risk, dict) else str(risk)
+                    report += f"    {idx}. [{severity.upper()}] {description}\n"
             else:
-                report += "  - Aucune recommandation générée.\n"
+                report += "  Risques identifiés : aucun constat justifiable à partir des données collectées.\n"
+
+            if recs:
+                report += "  Recommandations :\n"
+                for idx, rec in enumerate(recs, 1):
+                    report += f"    {idx}. {rec}\n"
+            else:
+                report += "  Recommandations : aucune.\n"
+
             report += "\n"
 
         report += "=" * 60 + "\n"

@@ -87,6 +87,10 @@ class AuditState(TypedDict):
     # Audit global info
     audit: AuditInfo
 
+    # Identifiant de session, présent uniquement quand l'audit est lancé
+    # depuis l'API (frontend React) — absent en mode CLI.
+    audit_id: Optional[str]
+
     # Network discovery
     network_info: Optional[NetworkInfo]
 

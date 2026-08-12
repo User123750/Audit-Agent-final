@@ -13,5 +13,6 @@ python-dotenv
 pydantic
 
 ipaddress
+requests
 
 pytest
